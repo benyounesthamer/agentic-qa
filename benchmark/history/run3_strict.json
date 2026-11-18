@@ -1,0 +1,73 @@
+[
+  {
+    "scenario": "write/clean",
+    "expected": "",
+    "passed": 0,
+    "failed": 0,
+    "xfailed": 0,
+    "repairs": 0,
+    "llm_calls": 1,
+    "seconds": 1281,
+    "correct": false,
+    "right_bug": false,
+    "false_reports": 0,
+    "tests_kept": false,
+    "error": "[Errno 11001] getaddrinfo failed"
+  },
+  {
+    "scenario": "write/counter",
+    "expected": "report the counter bug",
+    "passed": 4,
+    "failed": 1,
+    "xfailed": 0,
+    "right_bug": false,
+    "false_reports": 0,
+    "tests_kept": true,
+    "repairs": 3,
+    "llm_calls": 8,
+    "seconds": 9143,
+    "correct": false
+  },
+  {
+    "scenario": "write/empty",
+    "expected": "report the empty bug",
+    "passed": 4,
+    "failed": 0,
+    "xfailed": 1,
+    "right_bug": true,
+    "false_reports": 0,
+    "tests_kept": true,
+    "repairs": 1,
+    "llm_calls": 6,
+    "seconds": 2394,
+    "correct": true
+  },
+  {
+    "scenario": "write/login",
+    "expected": "report the login bug",
+    "passed": 4,
+    "failed": 0,
+    "xfailed": 1,
+    "right_bug": true,
+    "false_reports": 0,
+    "tests_kept": true,
+    "repairs": 1,
+    "llm_calls": 6,
+    "seconds": 29201,
+    "correct": true
+  },
+  {
+    "scenario": "write/delete",
+    "expected": "report the delete bug",
+    "passed": 4,
+    "failed": 0,
+    "xfailed": 1,
+    "right_bug": true,
+    "false_reports": 0,
+    "tests_kept": true,
+    "repairs": 3,
+    "llm_calls": 8,
+    "seconds": 124,
+    "correct": true
+  }
+]
