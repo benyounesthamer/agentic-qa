@@ -1,5 +1,9 @@
 # Agentic QA
 
+[![CI](https://github.com/benyounesthamer/agentic-qa/actions/workflows/ci.yml/badge.svg)](https://github.com/benyounesthamer/agentic-qa/actions/workflows/ci.yml)
+![Python](https://img.shields.io/badge/python-3.11%2B-blue)
+![License: MIT](https://img.shields.io/badge/license-MIT-green)
+
 An LLM agent that explores a web app, writes Playwright tests from a user story, runs them in a real browser, and repairs the ones that fail. When a failure is the application's fault, it reports a bug with a screenshot instead of editing the test until it passes. When the UI is redesigned, it heals the existing suite.
 
 ![Report from a benchmark run: the agent repaired its tests over 3 runs and reported the planted "delete does nothing" bug, with its reasoning and a screenshot](docs/report.png)
