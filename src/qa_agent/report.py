@@ -10,9 +10,17 @@ from pathlib import Path
 
 def plan_coverage(plan: list[dict], code: str) -> tuple[int, list[str]]:
     """How many test cases of the plan have a test named after their id (test_tc04_...)."""
-    names = " ".join(re.findall(r"^def (test_\w+)", code, flags=re.M)).lower()
-    ids = [str(tc.get("id", "")).lower().replace("-", "").replace(" ", "") for tc in plan]
-    missing = [tc.get("id", "") for tc, i in zip(plan, ids) if i and f"test_{i}" not in names]
+    names = [n.lower() for n in re.findall(r"^def (test_\w+)", code, flags=re.M)]
+
+    def has_test(plan_id: str) -> bool:
+        # "TC4", "TC-04" and "tc04" are the same case: compare the prefix and the number, not the text
+        m = re.fullmatch(r"([a-z]*)[\s_-]*0*(\d+)", plan_id.lower().strip())
+        if not m:
+            return any(plan_id.lower() in n for n in names)
+        pattern = re.compile(rf"^test_{m.group(1)}_?0*{m.group(2)}(_|$)")
+        return any(pattern.match(n) for n in names)
+
+    missing = [str(tc.get("id", "")) for tc in plan if tc.get("id") and not has_test(str(tc["id"]))]
     return len(plan) - len(missing), missing
 
 

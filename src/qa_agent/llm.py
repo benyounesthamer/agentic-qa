@@ -34,7 +34,7 @@ class ChatLLM:
         r = None
         for attempt in range(10):
             r = httpx.post(f"{self.base_url}/chat/completions", json=body, headers=headers, timeout=self.timeout)
-            if r.status_code == 429 and "per day" in r.text:  # daily quota: waiting minutes will not help
+            if r.status_code == 429 and ("per day" in r.text or "PerDay" in r.text):  # daily quota: waiting minutes will not help
                 raise RuntimeError("Daily token quota of the model provider is used up: " + r.text[:300])
             if r.status_code in (429, 500, 502, 503):  # rate limit or transient error: back off and retry
                 time.sleep(min(float(r.headers.get("retry-after", 2 ** attempt)), 90) + 1)
