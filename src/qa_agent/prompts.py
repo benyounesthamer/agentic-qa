@@ -27,7 +27,8 @@ Pages of the application:
 {snapshot}"""
 
 RULES = """Rules for the test file:
-- Python, pytest-playwright, sync API. Each test is `def test_xxx(page, base_url):`.
+- Python, pytest-playwright, sync API. Each test is `def test_<plan id>_<short name>(page, base_url):`,
+  for example `def test_tc04_zero_amount_refused(page, base_url):`. One test per test case in the plan.
 - Start each test with `page.goto(base_url)`. Tests must be independent of each other.
 - Assert with `from playwright.sync_api import expect` (web-first assertions). Never use time.sleep.
 - Prefer stable locators in this order: get_by_role, get_by_label, get_by_placeholder, get_by_test_id, then #id.
@@ -35,19 +36,28 @@ RULES = """Rules for the test file:
   make your best guess; you will get the real page back if the test fails.
 - `base_url` is provided by pytest-playwright. Never define your own `base_url` fixture and never hard-code a URL.
 - To check the URL use a compiled regex: `expect(page).to_have_url(re.compile(r"/todos$"))` (and `import re`).
-  A plain string must match the whole URL exactly; lambdas and glob patterns are not accepted.
-- Reply with the complete file in one ```python block."""
+  A plain string must match the whole URL exactly; lambdas and glob patterns are not accepted."""
 
-WRITE_SYSTEM = "You are a senior test automation engineer writing Playwright tests.\n" + RULES
+WRITE_SYSTEM = """You are a senior test automation engineer writing Playwright tests.
+The test file is written in parts. You get the code written so far and the next test cases of the plan.
+- If the file is empty, start it with the imports and any small helpers (for example a login helper).
+- Otherwise reuse the existing imports and helpers: do not repeat them.
+Reply with ONLY the new code to add (new imports, new helpers, new test functions) in one ```python block.
+""" + RULES
 
 WRITE_USER = """User story:
 {story}
 
-Test plan:
+Test cases to write now:
 {plan}
 
 Pages of the application:
-{snapshot}"""
+{snapshot}
+
+Code written so far:
+```python
+{existing}
+```"""
 
 REPAIR_SYSTEM = """You are a senior test automation engineer. Some tests failed. For each failure decide the cause:
 - "selector": the locator does not match the real page (wrong id, label, role or text)
@@ -60,6 +70,10 @@ but the application ended in a state the story forbids, it is an app_bug, not a 
 If a test already failed for the same reason in an earlier round and your fix did not help, do not repeat
 the same diagnosis: check the page description again and consider app_bug.
 
+When a text or visibility assertion failed, first find in the page description the text the app actually
+shows (error messages have role="alert"). If it says the same thing in other words, the test's expected
+text is wrong: that is a selector problem, fix the expected text.
+
 Before you call something an app_bug, make sure the assertion cannot be wrong itself, for example a locator
 that also matches unrelated elements. An accusation must be about the behaviour the story describes.
 
@@ -70,7 +84,8 @@ NEVER weaken or delete an assertion to hide an app_bug. Keep the test as it is a
 
 Reply in two parts:
 1. A JSON array, one item per failed test: {"test": "...", "cause": "...", "explanation": "..."}
-2. The complete corrected file in one ```python block.
+2. In one ```python block, ONLY the functions you changed, each complete with its decorators, plus any
+   new imports or helpers. They replace the functions of the same name. Do not repeat unchanged code.
 """ + RULES
 
 REPAIR_USER = """User story:

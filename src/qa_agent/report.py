@@ -4,7 +4,16 @@ from __future__ import annotations
 import base64
 import difflib
 from html import escape
+import re
 from pathlib import Path
+
+
+def plan_coverage(plan: list[dict], code: str) -> tuple[int, list[str]]:
+    """How many test cases of the plan have a test named after their id (test_tc04_...)."""
+    names = " ".join(re.findall(r"^def (test_\w+)", code, flags=re.M)).lower()
+    ids = [str(tc.get("id", "")).lower().replace("-", "").replace(" ", "") for tc in plan]
+    missing = [tc.get("id", "") for tc, i in zip(plan, ids) if i and f"test_{i}" not in names]
+    return len(plan) - len(missing), missing
 
 
 def summarize(results: list[dict]) -> dict:
@@ -13,6 +22,12 @@ def summarize(results: list[dict]) -> dict:
 
 def _diagnoses(state: dict) -> list[tuple[int, dict]]:
     return [(h["run"], d) for h in state["history"] for d in h["diagnoses"] if isinstance(d, dict)]
+
+
+def _short_error(message: str) -> str:
+    """The assertion and its first lines, not the full page dump Playwright appends."""
+    lines = [ln for ln in message.splitlines() if ln.strip() and not ln.lstrip("E ").startswith("- ")]
+    return "\n".join(lines[:8])[:700]
 
 
 def _first_line(message: str) -> str:
@@ -33,6 +48,10 @@ def render_markdown(state: dict) -> str:
            f"**Final result: {final['passed']} passed, {final['failed']} failed, "
            f"{final['xfailed']} suspected app bug(s)** after {state['repairs']} repair round(s).", "",
            f"Pages explored: {', '.join(state.get('pages_found', []))}", ""]
+    if state.get("plan"):
+        covered, missing = plan_coverage(state["plan"], state["test_code"])
+        out += [f"Plan coverage: {covered} of {len(state['plan'])} test cases have a test"
+                + (f" (missing: {', '.join(missing)})" if missing else "") + ".", ""]
     if state.get("plan"):
         out += ["## Test plan", "", "| ID | Title | Expected |", "|---|---|---|"]
         out += [f"| {tc.get('id', '')} | {tc.get('title', '')} | {tc.get('expected', '')} |" for tc in state["plan"]]
@@ -75,7 +94,7 @@ th, td { text-align:left; padding:8px 12px; border-bottom:1px solid var(--line);
 th { font-size:12px; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); }
 .tag { display:inline-block; padding:1px 8px; border-radius:99px; border:1px solid currentColor; font-size:12px; }
 .card { margin:12px 0; } .card p { margin:8px 0; }
-.card img { display:block; width:100%; height:170px; object-fit:none; object-position:top left; background:#fff;
+.card img { display:block; width:100%; height:230px; object-fit:cover; object-position:top center; background:#fff;
             border:1px solid var(--line); border-radius:8px; margin-top:10px; }
 .bugs { display:grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap:12px; }
 .bugs .card { margin:0; } .why { color:var(--muted); font-size:14px; }
@@ -116,7 +135,11 @@ def render_html(state: dict) -> str:
          f"<div class='tile'><b class='pass'>{final['passed']}</b>tests passing</div>",
          f"<div class='tile'><b class='bug'>{final['xfailed']}</b>suspected app bugs</div>",
          f"<div class='tile'><b class='fail'>{final['failed']}</b>tests still failing</div>",
-         f"<div class='tile'><b>{len(state['history'])}</b>test runs</div></div>"]
+         f"<div class='tile'><b>{len(state['history'])}</b>test runs</div>"]
+    if state.get("plan"):
+        covered, _ = plan_coverage(state["plan"], state["test_code"])
+        h.append(f"<div class='tile'><b>{covered}/{len(state['plan'])}</b>plan cases covered</div>")
+    h.append("</div>")
 
     h.append("<h2>How the suite improved, run by run</h2>")
     for r in state["history"]:
@@ -144,7 +167,7 @@ def render_html(state: dict) -> str:
         h.append("<h2>Tests the agent could not fix</h2>")
         for r in still:
             h.append(f"<div class='card'><span class='tag fail'>failed</span> <code>{e(r['name'])}</code>"
-                     f"<pre>{e(r['message'][-800:])}</pre>{_image(r.get('screenshot', ''))}</div>")
+                     f"<pre>{e(_short_error(r['message']))}</pre>{_image(r.get('screenshot', ''))}</div>")
 
     if _diagnoses(state):
         h.append("<h2>What the agent diagnosed</h2><table><tr><th>After run</th><th>Test</th><th>Cause</th>"

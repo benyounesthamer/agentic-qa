@@ -7,3 +7,5 @@ runs/
 *.egg-info/
 
 benchmark/runs/
+
+benchmark/results.jsonl

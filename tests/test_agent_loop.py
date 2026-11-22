@@ -146,3 +146,39 @@ def test_parsers():
     assert extract_code("```python\ndef broken(:\n```", fallback="keep\n") == "keep\n"
     assert extract_json('Here you go:\n[{"a": 1}]\n```python\nd = {}\n```') == [{"a": 1}]
     assert extract_json("no json here") is None
+
+
+def test_splice_replaces_by_name_and_keeps_the_rest():
+    from qa_agent.splice import splice
+    original = ("from playwright.sync_api import expect\n\n\ndef login(page):\n    pass\n\n\n"
+                "def test_tc01_a(page):\n    assert 1\n\n\ndef test_tc02_b(page):\n    assert 2\n")
+    patch = ("import pytest\n\n\n@pytest.mark.xfail(reason='APP BUG: x', strict=True)\n"
+             "def test_tc02_b(page):\n    assert 3\n\n\ndef test_tc03_c(page):\n    assert 4\n")
+    merged = splice(original, patch)
+    compile(merged, "merged.py", "exec")
+    assert merged.index("import pytest") < merged.index("def login")         # import added at the top
+    assert "assert 1" in merged and "assert 2" not in merged                # untouched test kept, edited one replaced
+    assert merged.count("def test_tc02_b") == 1 and "strict=True" in merged  # decorator travels with the function
+    assert merged.rstrip().endswith("assert 4")                              # new test appended
+
+
+def test_tests_are_written_in_batches_and_coverage_is_reported(tmp_path):
+    from qa_agent.graph import WRITE_BATCH, build_graph
+    from qa_agent.report import plan_coverage
+    plan = [{"id": f"TC{i}", "title": f"case {i}", "expected": ""} for i in range(1, 5)]
+    batch1 = "```python\nfrom playwright.sync_api import expect\n\n\ndef test_tc1_a(page):\n    pass\n```"
+    batch2 = "```python\ndef test_tc4_d(page):\n    pass\n```"
+
+    class Scripted:
+        def __init__(self):
+            self.calls = 0
+
+        def complete(self, system, user):
+            self.calls += 1
+            return batch1 if self.calls == 1 else batch2
+
+    llm = Scripted()
+    g = build_graph(llm)
+    out = g.nodes["write_tests"].bound.invoke({"plan": plan, "story": "s", "page_snapshot": "p"})
+    assert llm.calls == -(-len(plan) // WRITE_BATCH)        # one call per batch of test cases
+    assert plan_coverage(plan, out["test_code"]) == (2, ["TC2", "TC3"])  # missing cases are reported

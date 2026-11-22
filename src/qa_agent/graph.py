@@ -19,6 +19,10 @@ from .report import render_html, render_markdown, summarize
 from .llm import LLM
 from .runner import run_tests
 from .snapshot import explore
+from .splice import focus, splice
+
+WRITE_BATCH = 3   # test cases written per model call
+REPAIR_BATCH = 3  # failing tests repaired per model call
 
 
 class QAState(TypedDict, total=False):
@@ -73,6 +77,7 @@ def test_names(code: str) -> set[str]:
     return set(re.findall(r"^def (test_\w+)", code, flags=re.M))
 
 
+
 def extract_json(text: str):
     """Pull the first JSON array or object out of a model reply."""
     fenced = re.search(r"```(?:json)?\s*\n(.*?)```", text, flags=re.S)
@@ -116,9 +121,18 @@ def build_graph(llm: LLM):
         return {"plan": plan}
 
     def write_tests(state: QAState) -> dict:
-        reply = llm.complete(prompts.WRITE_SYSTEM, prompts.WRITE_USER.format(
-            story=state["story"], plan=json.dumps(state["plan"], indent=2), snapshot=state["page_snapshot"]))
-        return {"test_code": extract_code(reply)}
+        """Write the suite a few test cases at a time, so no single reply is long enough to be cut off."""
+        code = ""
+        plan = state["plan"]
+        for i in range(0, len(plan), WRITE_BATCH):
+            batch = plan[i:i + WRITE_BATCH]
+            reply = llm.complete(prompts.WRITE_SYSTEM, prompts.WRITE_USER.format(
+                story=state["story"], plan=json.dumps(batch, indent=2), snapshot=state["page_snapshot"],
+                existing=code or "# (empty file)"))
+            part = extract_code(reply, fallback="")
+            if part.strip():
+                code = splice(code, part)
+        return {"test_code": code}
 
     def execute_tests(state: QAState) -> dict:
         results = run_tests(state["test_code"], state["base_url"], Path(state["workdir"]))
@@ -127,24 +141,39 @@ def build_graph(llm: LLM):
         return {"results": results, "history": state["history"] + [entry]}
 
     def repair_tests(state: QAState) -> dict:
-        failures = "\n\n".join(
-            f"### {r['name']}\n{r['message']}\n\nPage when it failed:\n{r['page_at_failure'] or '(not captured)'}"
-            for r in state["results"] if r["status"] == "failed")
-        reply = llm.complete(prompts.REPAIR_SYSTEM, prompts.REPAIR_USER.format(
-            story=state["story"], code=state["test_code"], failures=failures,
-            previous=json.dumps([d for h in state["history"] for d in h["diagnoses"]], indent=1)))
-        diagnoses = extract_json(reply.split("```python")[0])
-        if isinstance(diagnoses, dict):
-            diagnoses = [diagnoses]
-        history = state["history"][:-1] + [{**state["history"][-1], "diagnoses": diagnoses or []}]
-        new_code = extract_code(reply, fallback=state["test_code"])
-        dropped = test_names(state["test_code"]) - test_names(new_code)
+        """Repair failing tests a few at a time, showing the model only the code it needs."""
+        failing = [r for r in state["results"] if r["status"] == "failed"]
+        code, diagnoses = state["test_code"], []
+        earlier = [d for h in state["history"] for d in h["diagnoses"]][-8:]
+        for i in range(0, len(failing), REPAIR_BATCH):
+            group = failing[i:i + REPAIR_BATCH]
+            failures = "\n\n".join(
+                f"### {r['name']}\n{r['message'][-900:]}\n\n"
+                f"Page when it failed:\n{r['page_at_failure'] or '(not captured)'}"
+                for r in group)
+            names = {r["name"] for r in group}
+            reply = llm.complete(prompts.REPAIR_SYSTEM, prompts.REPAIR_USER.format(
+                story=state["story"], code=focus(code, names) if "collection" not in names else code,
+                failures=failures, previous=json.dumps(earlier + diagnoses, indent=1)))
+            found = extract_json(reply.split("```python")[0])
+            diagnoses += [found] if isinstance(found, dict) else (found or [])
+            patch = extract_code(reply, fallback="")
+            # the model sends only what it changed; it is merged into the file by function name
+            if patch.strip():
+                try:
+                    code = splice(code, patch)
+                except SyntaxError:
+                    # the current file does not parse, so nothing can be merged into it: the model saw the
+                    # whole file in that case, and its reply replaces the file if it is valid Python
+                    code = patch if _compiles(patch) else code
+        history = state["history"][:-1] + [{**state["history"][-1], "diagnoses": diagnoses}]
+        dropped = test_names(state["test_code"]) - test_names(code)
         if dropped:  # guard: a repair that deletes tests is rejected, the previous file is kept
-            new_code = state["test_code"]
+            code = state["test_code"]
             history[-1]["diagnoses"] = history[-1]["diagnoses"] + [{
                 "test": ", ".join(sorted(dropped)), "cause": "rejected_repair",
                 "explanation": "The proposed repair deleted these tests, so it was discarded."}]
-        return {"test_code": new_code, "repairs": state["repairs"] + 1, "history": history}
+        return {"test_code": code, "repairs": state["repairs"] + 1, "history": history}
 
     def write_report(state: QAState) -> dict:
         out = Path(state["workdir"])

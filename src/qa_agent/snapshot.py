@@ -2,17 +2,19 @@
 from __future__ import annotations
 
 SNAPSHOT_JS = """() => Array.from(document.querySelectorAll(
-    'a,button,input,select,textarea,label,h1,h2,h3,li,p,span,[role],[data-testid]'))
-  .filter(e => e.offsetParent !== null)
+    'a,button,input,select,option,textarea,label,h1,h2,h3,li,p,span,td,[role],[data-testid]'))
+  // options have no layout box of their own, so they are kept whenever they exist
+  .filter(e => e.offsetParent !== null || e.tagName === 'OPTION')
   .map(e => ({
     tag: e.tagName.toLowerCase(), id: e.id || null, name: e.getAttribute('name'),
+    value: e.tagName === 'OPTION' ? e.value : null,
     type: e.getAttribute('type'), role: e.getAttribute('role'),
     testid: e.getAttribute('data-testid'), placeholder: e.getAttribute('placeholder'),
     aria_label: e.getAttribute('aria-label'),
-    text: (e.children.length ? '' : (e.innerText || '')).trim().slice(0, 80)
+    text: (e.children.length ? '' : (e.innerText || e.textContent || '')).trim().slice(0, 80)
   }))
   .filter(e => ['input','select','textarea','button','a'].includes(e.tag) || e.text || e.role)
-  .slice(0, 80)"""
+  .slice(0, 120)"""
 
 
 NAMES = {"aria_label": "aria-label", "testid": "data-testid"}
