@@ -23,6 +23,7 @@ class ChatLLM:
     def __init__(self, base_url: str, model: str, api_key: str | None = None, timeout: float = 120):
         self.base_url, self.model, self.api_key, self.timeout = base_url.rstrip("/"), model, api_key, timeout
         self.calls = 0
+        self.truncated = 0  # replies cut off by the length limit: counted so they are never silent
 
     def complete(self, system: str, user: str) -> str:
         headers = {"Authorization": f"Bearer {self.api_key}"} if self.api_key else {}
@@ -30,7 +31,12 @@ class ChatLLM:
             "model": self.model,
             "temperature": 0,
             "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
+            "max_tokens": 6000,
         }
+        if "gpt-oss" in self.model:
+            # reasoning models think before answering; at the default effort they can spend the whole
+            # reply budget thinking and return an empty answer, so they are asked to think briefly
+            body["reasoning_effort"] = os.getenv("REASONING_EFFORT", "low")
         r = None
         for attempt in range(10):
             r = httpx.post(f"{self.base_url}/chat/completions", json=body, headers=headers, timeout=self.timeout)
@@ -41,7 +47,10 @@ class ChatLLM:
                 continue
             r.raise_for_status()
             self.calls += 1
-            return r.json()["choices"][0]["message"]["content"]
+            choice = r.json()["choices"][0]
+            if choice.get("finish_reason") == "length":
+                self.truncated += 1
+            return choice["message"].get("content") or ""
         r.raise_for_status()
         raise RuntimeError("LLM request failed after retries")
 
